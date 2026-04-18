@@ -88,8 +88,16 @@ def classify_emotion(text: str) -> str | None:
         return None
 
 
-def save_gem(user_id: str, gem: str, record_text: str, has_photo: bool):
+def save_gem(user_id: str, gem: str, record_text: str, has_photo: bool, image_url: str = None):
     try:
+        data = {
+            "user_id": user_id,
+            "gem": gem,
+            "record_text": record_text,
+            "has_photo": has_photo,
+        }
+        if image_url:
+            data["image_url"] = image_url
         requests.post(
             f"{SUPABASE_URL}/rest/v1/gems",
             headers={
@@ -97,12 +105,7 @@ def save_gem(user_id: str, gem: str, record_text: str, has_photo: bool):
                 "Authorization": f"Bearer {SUPABASE_KEY}",
                 "Content-Type": "application/json",
             },
-            json={
-                "user_id": user_id,
-                "gem": gem,
-                "record_text": record_text,
-                "has_photo": has_photo,
-            },
+            json=data,
             timeout=5,
         )
     except Exception as e:
@@ -282,7 +285,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
     # 사진 전송
     if is_image_url(utterance):
-        pending_photo[user_id] = datetime.now()
+        pending_photo[user_id] = {"time": datetime.now(), "url": utterance}
         return JSONResponse(kakao_response("찰칵! 오늘은 사진으로 일상을 채집했군요!\n카메라를 들어 일상을 찍을 때, 당신은 어떤 기분이 들었나요?\n슬쩍 알려주면 사진에 어울리는 원석을 추천해드릴게요. 📸"))
 
     if not utterance:
@@ -326,10 +329,11 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             "아이템은 모두 주웠지만, 일상 속 소중한 순간은 계속 모을 수 있어요."        ))
 
     # 사진+텍스트 기반 (10분 이내)
-    photo_time = pending_photo.get(user_id)
-    if photo_time and datetime.now() - photo_time <= PHOTO_TIMEOUT:
+    photo_data = pending_photo.get(user_id)
+    if photo_data and datetime.now() - photo_data["time"] <= PHOTO_TIMEOUT:
+        image_url = photo_data["url"]
         del pending_photo[user_id]
-        background_tasks.add_task(save_gem, user_id, gem, utterance, True)
+        background_tasks.add_task(save_gem, user_id, gem, utterance, True, image_url)
         return JSONResponse(kakao_response(
             f"사진과 함께 저장하는 일상이라니! 정말 좋은 순간을 찾아왔군요. 🌟\n"
             f"{gem} 원석으로 지금을 저장해줄게요.\n"
