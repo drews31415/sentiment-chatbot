@@ -48,8 +48,10 @@ def classify_emotion(text: str) -> str | None:
                     {
                         "role": "user",
                         "content": (
-                            "다음 일상 기록을 읽고 감정을 하나의 원석 이름으로만 답해줘. "
-                            "예: 기쁨→루비, 평온→아쿠아마린, 슬픔→사파이어, 설렘→로즈쿼츠, 피로→스모키쿼츠. "
+                            "다음 일상 기록을 읽고 감정을 하나의 원석 이름으로만 답해줘.\n"
+                            "감정-원석 매핑:\n"
+                            "무탈→월장석, 평온→아쿠아마린, 뿌듯→황수정, 기쁨→루비, 만족→앰버, "
+                            "설렘→로즈쿼츠, 슬픔→사파이어, 짜증→가넷, 후회→연수정, 위로→오팔\n"
                             "원석 이름만 한 단어로 답해. 다른 말은 하지 마.\n\n"
                             f"일상 기록: {text}"
                         ),
@@ -108,14 +110,36 @@ def get_gems(user_id: str) -> list:
         return []
 
 
-def kakao_response(text: str, show_bag_button: bool = False) -> dict:
+EMOTION_QUICK_REPLIES = [
+    {"label": "무탈", "action": "message", "messageText": "무탈"},
+    {"label": "평온", "action": "message", "messageText": "평온"},
+    {"label": "뿌듯", "action": "message", "messageText": "뿌듯"},
+    {"label": "기쁨", "action": "message", "messageText": "기쁨"},
+    {"label": "만족", "action": "message", "messageText": "만족"},
+    {"label": "설렘", "action": "message", "messageText": "설렘"},
+    {"label": "슬픔", "action": "message", "messageText": "슬픔"},
+    {"label": "짜증", "action": "message", "messageText": "짜증"},
+    {"label": "후회", "action": "message", "messageText": "후회"},
+    {"label": "위로", "action": "message", "messageText": "위로"},
+]
+
+EMOTION_TO_GEM = {
+    "무탈": "월장석", "평온": "아쿠아마린", "뿌듯": "황수정",
+    "기쁨": "루비", "만족": "앰버", "설렘": "로즈쿼츠",
+    "슬픔": "사파이어", "짜증": "가넷", "후회": "연수정", "위로": "오팔",
+}
+
+
+def kakao_response(text: str, show_bag_button: bool = False, show_emotion_buttons: bool = False) -> dict:
     result = {
         "version": "2.0",
         "template": {
             "outputs": [{"simpleText": {"text": text}}]
         },
     }
-    if show_bag_button:
+    if show_emotion_buttons:
+        result["template"]["quickReplies"] = EMOTION_QUICK_REPLIES
+    elif show_bag_button:
         result["template"]["quickReplies"] = [
             {"label": "내 원석 보기 👜", "action": "message", "messageText": "내 원석"}
         ]
@@ -125,8 +149,9 @@ def kakao_response(text: str, show_bag_button: bool = False) -> dict:
 def kakao_carousel(gems: list) -> dict:
     cards = []
     gem_emoji = {
-        "루비": "🔴", "아쿠아마린": "🔵", "사파이어": "💙",
-        "로즈쿼츠": "🌸", "스모키쿼츠": "🩶",
+        "월장석": "🤍", "아쿠아마린": "🩵", "황수정": "💛",
+        "루비": "❤️", "앰버": "🟠", "로즈쿼츠": "🌸",
+        "사파이어": "💙", "가넷": "🔴", "연수정": "🤎", "오팔": "🫧",
     }
     for g in gems:
         emoji = gem_emoji.get(g["gem"], "💎")
@@ -161,6 +186,18 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     user_id = body.get("userRequest", {}).get("user", {}).get("id", "unknown")
     utterance = body.get("userRequest", {}).get("utterance", "").strip()
 
+    # 퀵 버튼으로 감정 직접 선택
+    if utterance in EMOTION_TO_GEM:
+        gem = EMOTION_TO_GEM[utterance]
+        if not check_and_increment(user_id):
+            return JSONResponse(kakao_response("오늘 채집권을 모두 사용했어요! 내일 또 만나요 🌙"))
+        background_tasks.add_task(save_gem, user_id, gem, utterance, False)
+        return JSONResponse(kakao_response(
+            f"일상 속 순간 채집이 완료됐어요! {gem} 원석으로 저장해줄게요.\n"
+            f"오늘 주운 원석은 아래 가방 속에서 확인해볼 수 있어요!",
+            show_bag_button=True
+        ))
+
     # 원석 가방 조회
     if utterance in ("내 원석", "원석 보기", "가방"):
         gems = get_gems(user_id)
@@ -181,7 +218,11 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
     gem = classify_emotion(utterance)
     if not gem:
-        return JSONResponse(kakao_response("조금 더 자세히 감정을 알려주실 수 있나요?"))
+        return JSONResponse(kakao_response(
+            "앗! 순간이 너무 빨라 줍지 못했어요.\n"
+            "아래 감정 버튼을 눌러 더 쉽게 주울 수도 있어요!",
+            show_emotion_buttons=True
+        ))
 
     # 사진+텍스트 기반 (10분 이내)
     photo_time = pending_photo.get(user_id)
