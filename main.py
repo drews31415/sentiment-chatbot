@@ -62,6 +62,8 @@ def classify_emotion(text: str) -> str | None:
         )
         result = response.json()["choices"][0]["message"]["content"].strip()
         return result if result else None
+    except requests.Timeout:
+        return "TIMEOUT"
     except Exception as e:
         print(f"[classify_emotion error] {e}")
         print(f"[response] {response.text if 'response' in dir() else 'no response'}")
@@ -128,12 +130,19 @@ DANGER_KEYWORDS = [
     "없어지고싶", "없어지고 싶", "살기싫", "살기 싫", "죽어버리고싶", "끝내고싶",
 ]
 
+HARMFUL_KEYWORDS = [
+    "섹스", "야동", "포르노", "성인", "씨발", "개새끼", "죽여", "죽일", "살인",
+    "협박", "폭행", "강간", "테러",
+]
+
 DANGER_MESSAGE = (
     "많이 힘드시겠어요. 혼자 감당하기 어려운 감정이 느껴질 때는 도움을 받을 수 있어요.\n\n"
     "📞 자살예방상담전화: 1393 (24시간)\n"
     "📞 정신건강위기상담전화: 1577-0199 (24시간)\n\n"
     "당신의 이야기를 들어줄 사람이 있어요. 꼭 전화해보세요."
 )
+
+HARMFUL_MESSAGE = "해당 기록은 서비스 정책에 따라 채집이 어려워요. 일상 속 소중한 순간을 담아 다시 보내주세요."
 
 EMOTION_TO_GEM = {
     "무탈": "월장석", "평온": "아쿠아마린", "뿌듯": "황수정",
@@ -202,6 +211,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if any(kw in utterance for kw in DANGER_KEYWORDS):
         return JSONResponse(kakao_response(DANGER_MESSAGE))
 
+    # 유해 기록 감지
+    if any(kw in utterance for kw in HARMFUL_KEYWORDS):
+        return JSONResponse(kakao_response(HARMFUL_MESSAGE))
+
     # 퀵 버튼으로 감정 직접 선택
     if utterance in EMOTION_TO_GEM:
         gem = EMOTION_TO_GEM[utterance]
@@ -238,9 +251,15 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         ))
 
     gem = classify_emotion(utterance)
+    if gem == "TIMEOUT":
+        return JSONResponse(kakao_response(
+            "현재 세공소에 광물이 몰려 분류에 시간이 조금 걸리고 있어요!\n"
+            "조금만 기다리면 세공소 주인장을 불러올게요 🛠️"
+        ))
     if not gem:
         return JSONResponse(kakao_response(
             "앗! 순간이 너무 빨라 줍지 못했어요.\n"
+            "지금을 조금 더 깊이 적어 채집을 완료해보세요!\n\n"
             "아래 감정 버튼을 눌러 더 쉽게 주울 수도 있어요!",
             show_emotion_buttons=True
         ))
