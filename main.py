@@ -175,12 +175,20 @@ BASE_QUICK_REPLIES = [
 ]
 
 
-def kakao_response(text: str, show_emotion_buttons: bool = False) -> dict:
+def kakao_response(
+    text: str,
+    show_emotion_buttons: bool = False,
+    show_bag_button: bool = False,
+) -> dict:
+    if show_emotion_buttons:
+        quick_replies = EMOTION_QUICK_REPLIES + BASE_QUICK_REPLIES
+    else:
+        quick_replies = BASE_QUICK_REPLIES
     result = {
         "version": "2.0",
         "template": {
             "outputs": [{"simpleText": {"text": text}}],
-            "quickReplies": EMOTION_QUICK_REPLIES + BASE_QUICK_REPLIES if show_emotion_buttons else BASE_QUICK_REPLIES,
+            "quickReplies": quick_replies,
         },
     }
     return result
