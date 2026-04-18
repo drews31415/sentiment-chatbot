@@ -178,14 +178,15 @@ BASE_QUICK_REPLIES = [
 ]
 
 
-def kakao_response(text: str, show_emotion_buttons: bool = False) -> dict:
+def kakao_response(text: str, show_emotion_buttons: bool = False, hide_buttons: bool = False) -> dict:
     result = {
         "version": "2.0",
         "template": {
             "outputs": [{"simpleText": {"text": text}}],
-            "quickReplies": EMOTION_QUICK_REPLIES + BASE_QUICK_REPLIES if show_emotion_buttons else BASE_QUICK_REPLIES,
         },
     }
+    if not hide_buttons:
+        result["template"]["quickReplies"] = EMOTION_QUICK_REPLIES + BASE_QUICK_REPLIES if show_emotion_buttons else BASE_QUICK_REPLIES
     return result
 
 
@@ -286,7 +287,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     # 사진 전송
     if is_image_url(utterance):
         pending_photo[user_id] = {"time": datetime.now(), "url": utterance}
-        return JSONResponse(kakao_response("찰칵! 오늘은 사진으로 일상을 채집했군요!\n카메라를 들어 일상을 찍을 때, 당신은 어떤 기분이 들었나요?\n슬쩍 알려주면 사진에 어울리는 원석을 추천해드릴게요. 📸"))
+        return JSONResponse(kakao_response("찰칵! 오늘은 사진으로 일상을 채집했군요!\n카메라를 들어 일상을 찍을 때, 당신은 어떤 기분이 들었나요?\n슬쩍 알려주면 사진에 어울리는 원석을 추천해드릴게요. 📸", hide_buttons=True))
 
     if not utterance:
         return JSONResponse(kakao_response("조금 더 자세히 감정을 알려주실 수 있나요?"))
