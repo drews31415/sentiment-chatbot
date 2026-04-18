@@ -242,13 +242,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if not utterance:
         return JSONResponse(kakao_response("조금 더 자세히 감정을 알려주실 수 있나요?"))
 
-    if not check_and_increment(user_id):
-        return JSONResponse(kakao_response(
-            "오늘 채집 바구니가 가득 찼습니다! 🧺\n"
-            "5개를 모두 줍다니 엄청난 하루를 보내셨군요!\n\n"
-            "아이템은 모두 주웠지만, 일상 속 소중한 순간은 계속 모을 수 있어요.",
-            show_bag_button=True
-        ))
+    quota_available = check_and_increment(user_id)
 
     gem = classify_emotion(utterance)
     if gem == "TIMEOUT":
@@ -256,12 +250,22 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             "현재 세공소에 광물이 몰려 분류에 시간이 조금 걸리고 있어요!\n"
             "조금만 기다리면 세공소 주인장을 불러올게요 🛠️"
         ))
-    if not gem:
+    VALID_GEMS = set(EMOTION_TO_GEM.values())
+    if not gem or gem not in VALID_GEMS:
         return JSONResponse(kakao_response(
             "앗! 순간이 너무 빨라 줍지 못했어요.\n"
             "지금을 조금 더 깊이 적어 채집을 완료해보세요!\n\n"
             "아래 감정 버튼을 눌러 더 쉽게 주울 수도 있어요!",
             show_emotion_buttons=True
+        ))
+
+    # 채집권 소진 - 기록은 받되 원석 미제공
+    if not quota_available:
+        return JSONResponse(kakao_response(
+            "오늘 채집 바구니가 가득 찼습니다! 🧺\n"
+            "5개를 모두 줍다니 엄청난 하루를 보내셨군요!\n\n"
+            "아이템은 모두 주웠지만, 일상 속 소중한 순간은 계속 모을 수 있어요.",
+            show_bag_button=True
         ))
 
     # 사진+텍스트 기반 (10분 이내)
