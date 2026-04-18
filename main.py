@@ -181,10 +181,14 @@ def kakao_carousel(gems: list) -> dict:
 
 @app.post("/webhook")
 async def webhook(request: Request, background_tasks: BackgroundTasks):
+    print("[webhook] Webhook received")
+
     body = await request.json()
+    print(f"[webhook] Request body: {body}")
 
     user_id = body.get("userRequest", {}).get("user", {}).get("id", "unknown")
     utterance = body.get("userRequest", {}).get("utterance", "").strip()
+    print(f"[webhook] user_id={user_id!r}, utterance={utterance!r}")
 
     # 퀵 버튼으로 감정 직접 선택
     if utterance in EMOTION_TO_GEM:
