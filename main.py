@@ -252,9 +252,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         background_tasks.add_task(save_gem, user_id, gem, utterance, False)
         return JSONResponse(kakao_response(
             f"일상 속 순간 채집이 완료됐어요! {gem} 원석으로 저장해줄게요.\n"
-            f"오늘 주운 원석은 아래 가방 속에서 확인해볼 수 있어요!",
-            show_bag_button=True
-        ))
+            f"오늘 주운 원석은 아래 가방 속에서 확인해볼 수 있어요!"        ))
 
     # 도감 조회
     if utterance == "도감":
@@ -325,9 +323,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         return JSONResponse(kakao_response(
             "오늘 채집 바구니가 가득 찼습니다! 🧺\n"
             "5개를 모두 줍다니 엄청난 하루를 보내셨군요!\n\n"
-            "아이템은 모두 주웠지만, 일상 속 소중한 순간은 계속 모을 수 있어요.",
-            show_bag_button=True
-        ))
+            "아이템은 모두 주웠지만, 일상 속 소중한 순간은 계속 모을 수 있어요."        ))
 
     # 사진+텍스트 기반 (10분 이내)
     photo_time = pending_photo.get(user_id)
@@ -337,9 +333,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         return JSONResponse(kakao_response(
             f"사진과 함께 저장하는 일상이라니! 정말 좋은 순간을 찾아왔군요. 🌟\n"
             f"{gem} 원석으로 지금을 저장해줄게요.\n"
-            f"이 원석은 조금 더 특별하게 사용할 수 있어요!",
-            show_bag_button=True
-        ))
+            f"이 원석은 조금 더 특별하게 사용할 수 있어요!"        ))
 
     # 타임아웃 초과 시 pending 제거
     if user_id in pending_photo:
