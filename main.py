@@ -169,19 +169,20 @@ EMOTION_TO_GEM = {
 }
 
 
-def kakao_response(text: str, show_bag_button: bool = False, show_emotion_buttons: bool = False) -> dict:
+BASE_QUICK_REPLIES = [
+    {"label": "인벤토리 👜", "action": "message", "messageText": "내 원석"},
+    {"label": "도감 📖", "action": "message", "messageText": "도감"},
+]
+
+
+def kakao_response(text: str, show_emotion_buttons: bool = False) -> dict:
     result = {
         "version": "2.0",
         "template": {
-            "outputs": [{"simpleText": {"text": text}}]
+            "outputs": [{"simpleText": {"text": text}}],
+            "quickReplies": EMOTION_QUICK_REPLIES + BASE_QUICK_REPLIES if show_emotion_buttons else BASE_QUICK_REPLIES,
         },
     }
-    if show_emotion_buttons:
-        result["template"]["quickReplies"] = EMOTION_QUICK_REPLIES
-    elif show_bag_button:
-        result["template"]["quickReplies"] = [
-            {"label": "내 원석 보기 👜", "action": "message", "messageText": "내 원석"}
-        ]
     return result
 
 
@@ -255,8 +256,27 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             show_bag_button=True
         ))
 
+    # 도감 조회
+    if utterance == "도감":
+        return JSONResponse(kakao_response(
+            "📖 닥토 공방 원석 도감\n\n"
+            "✨ 채집 가능한 원석 10가지\n\n"
+            "🤍 월장석 — 무탈한 하루\n"
+            "🩵 아쿠아마린 — 고요하고 평온한 순간\n"
+            "💛 황수정 — 뿌듯하고 자랑스러운 순간\n"
+            "❤️ 루비 — 기쁘고 즐거운 순간\n"
+            "🟠 앰버 — 흡족하고 만족스러운 순간\n"
+            "🌸 로즈쿼츠 — 설레고 두근거리는 순간\n"
+            "💙 사파이어 — 슬프고 우울한 순간\n"
+            "🔴 가넷 — 짜증나고 화나는 순간\n"
+            "🤎 연수정 — 후회되고 아쉬운 순간\n"
+            "🫧 오팔 — 힘들고 위로받고 싶은 순간\n\n"
+            "하루 최대 5개까지 채집할 수 있어요.\n"
+            "오늘은 어떤 원석을 주워볼까요? 🧳"
+        ))
+
     # 원석 가방 조회
-    if utterance in ("내 원석", "원석 보기", "가방"):
+    if utterance in ("내 원석", "원석 보기", "가방", "인벤토리"):
         gems = get_gems(user_id)
         if not gems:
             return JSONResponse(kakao_response("아직 채집한 원석이 없어요!\n일상을 보내주시면 원석으로 저장해드릴게요. 🪨"))
