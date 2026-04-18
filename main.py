@@ -3,6 +3,8 @@ from fastapi.responses import JSONResponse
 from datetime import date, datetime, timedelta
 import requests
 import os
+import smtplib
+from email.mime.text import MIMEText
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -10,13 +12,29 @@ load_dotenv()
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+ALERT_EMAIL = os.getenv("ALERT_EMAIL")
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
 
 app = FastAPI()
 
 user_count: dict = {}  # { "유저ID": {"date": date, "count": int} }
 pending_photo: dict = {}  # { "유저ID": datetime } 사진 보낸 시각 저장
+classify_fail_count: dict = {}  # { "유저ID": int } 감정 분류 실패 횟수
 
 PHOTO_TIMEOUT = timedelta(minutes=10)
+
+
+def send_alert_email(subject: str, body: str):
+    try:
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["Subject"] = subject
+        msg["From"] = ALERT_EMAIL
+        msg["To"] = ALERT_EMAIL
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(ALERT_EMAIL, GMAIL_APP_PASSWORD)
+            server.send_message(msg)
+    except Exception as e:
+        print(f"[email error] {e}")
 
 
 def check_and_increment(user_id: str) -> bool:
@@ -209,10 +227,20 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
     # 위험 기록 감지
     if any(kw in utterance for kw in DANGER_KEYWORDS):
+        background_tasks.add_task(
+            send_alert_email,
+            "[닥토공방] 위험 기록 감지",
+            f"유저 ID: {user_id}\n내용: {utterance}"
+        )
         return JSONResponse(kakao_response(DANGER_MESSAGE))
 
     # 유해 기록 감지
     if any(kw in utterance for kw in HARMFUL_KEYWORDS):
+        background_tasks.add_task(
+            send_alert_email,
+            "[닥토공방] 유해 기록 감지",
+            f"유저 ID: {user_id}\n내용: {utterance}"
+        )
         return JSONResponse(kakao_response(HARMFUL_MESSAGE))
 
     # 퀵 버튼으로 감정 직접 선택
@@ -252,6 +280,19 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         ))
     VALID_GEMS = set(EMOTION_TO_GEM.values())
     if not gem or gem not in VALID_GEMS:
+        fail_count = classify_fail_count.get(user_id, 0) + 1
+        classify_fail_count[user_id] = fail_count
+        if fail_count >= 2:
+            classify_fail_count[user_id] = 0
+            background_tasks.add_task(
+                send_alert_email,
+                "[닥토공방] 감정 분류 2회 실패 - 운영자 개입 필요",
+                f"유저 ID: {user_id}\n내용: {utterance}"
+            )
+            return JSONResponse(kakao_response(
+                "세공소 주인장을 직접 불러올게요! 🛠️\n"
+                "잠시만 기다려주시면 운영자가 직접 도와드릴게요."
+            ))
         return JSONResponse(kakao_response(
             "앗! 순간이 너무 빨라 줍지 못했어요.\n"
             "지금을 조금 더 깊이 적어 채집을 완료해보세요!\n\n"
