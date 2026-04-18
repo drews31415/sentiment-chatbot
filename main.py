@@ -123,6 +123,18 @@ EMOTION_QUICK_REPLIES = [
     {"label": "위로", "action": "message", "messageText": "위로"},
 ]
 
+DANGER_KEYWORDS = [
+    "죽고싶", "죽고 싶", "자살", "자해", "사라지고싶", "사라지고 싶",
+    "없어지고싶", "없어지고 싶", "살기싫", "살기 싫", "죽어버리고싶", "끝내고싶",
+]
+
+DANGER_MESSAGE = (
+    "많이 힘드시겠어요. 혼자 감당하기 어려운 감정이 느껴질 때는 도움을 받을 수 있어요.\n\n"
+    "📞 자살예방상담전화: 1393 (24시간)\n"
+    "📞 정신건강위기상담전화: 1577-0199 (24시간)\n\n"
+    "당신의 이야기를 들어줄 사람이 있어요. 꼭 전화해보세요."
+)
+
 EMOTION_TO_GEM = {
     "무탈": "월장석", "평온": "아쿠아마린", "뿌듯": "황수정",
     "기쁨": "루비", "만족": "앰버", "설렘": "로즈쿼츠",
@@ -186,6 +198,10 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     user_id = body.get("userRequest", {}).get("user", {}).get("id", "unknown")
     utterance = body.get("userRequest", {}).get("utterance", "").strip()
 
+    # 위험 기록 감지
+    if any(kw in utterance for kw in DANGER_KEYWORDS):
+        return JSONResponse(kakao_response(DANGER_MESSAGE))
+
     # 퀵 버튼으로 감정 직접 선택
     if utterance in EMOTION_TO_GEM:
         gem = EMOTION_TO_GEM[utterance]
@@ -214,7 +230,12 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         return JSONResponse(kakao_response("조금 더 자세히 감정을 알려주실 수 있나요?"))
 
     if not check_and_increment(user_id):
-        return JSONResponse(kakao_response("오늘 채집권을 모두 사용했어요! 내일 또 만나요 🌙"))
+        return JSONResponse(kakao_response(
+            "오늘 채집 바구니가 가득 찼습니다! 🧺\n"
+            "5개를 모두 줍다니 엄청난 하루를 보내셨군요!\n\n"
+            "아이템은 모두 주웠지만, 일상 속 소중한 순간은 계속 모을 수 있어요.",
+            show_bag_button=True
+        ))
 
     gem = classify_emotion(utterance)
     if not gem:
