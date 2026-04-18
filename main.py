@@ -343,6 +343,5 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     background_tasks.add_task(save_gem, user_id, gem, utterance, False)
     return JSONResponse(kakao_response(
         f"일상 속 순간 채집이 완료됐어요! {gem} 원석으로 저장해줄게요.\n"
-        f"오늘 주운 원석은 아래 가방 속에서 확인해볼 수 있어요!",
-        show_bag_button=True
+        f"오늘 주운 원석은 아래 가방 속에서 확인해볼 수 있어요!"
     ))
