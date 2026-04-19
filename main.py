@@ -18,7 +18,8 @@ GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
 app = FastAPI()
 
 user_count: dict = {}  # { "유저ID": {"date": date, "count": int} }
-pending_photo: dict = {}  # { "유저ID": datetime } 사진 보낸 시각 저장
+pending_photo: dict = {}  # { "유저ID": {"time": datetime, "url": str} }
+pending_gem: dict = {}  # { "유저ID": {"gem": str, "text": str, "has_photo": bool, "image_url": str|None} }
 classify_fail_count: dict = {}  # { "유저ID": int } 감정 분류 실패 횟수
 
 PHOTO_TIMEOUT = timedelta(minutes=10)
@@ -177,8 +178,14 @@ BASE_QUICK_REPLIES = [
     {"label": "도감 📖", "action": "message", "messageText": "도감"},
 ]
 
+SAVE_QUICK_REPLIES = [
+    {"label": "저장하기 💎", "action": "message", "messageText": "저장하기"},
+    {"label": "인벤토리 👜", "action": "message", "messageText": "내 원석"},
+    {"label": "도감 📖", "action": "message", "messageText": "도감"},
+]
 
-def kakao_response(text: str, show_emotion_buttons: bool = False, hide_buttons: bool = False) -> dict:
+
+def kakao_response(text: str, show_emotion_buttons: bool = False, hide_buttons: bool = False, show_save_button: bool = False) -> dict:
     result = {
         "version": "2.0",
         "template": {
@@ -186,7 +193,12 @@ def kakao_response(text: str, show_emotion_buttons: bool = False, hide_buttons: 
         },
     }
     if not hide_buttons:
-        result["template"]["quickReplies"] = EMOTION_QUICK_REPLIES + BASE_QUICK_REPLIES if show_emotion_buttons else BASE_QUICK_REPLIES
+        if show_save_button:
+            result["template"]["quickReplies"] = SAVE_QUICK_REPLIES
+        elif show_emotion_buttons:
+            result["template"]["quickReplies"] = EMOTION_QUICK_REPLIES + BASE_QUICK_REPLIES
+        else:
+            result["template"]["quickReplies"] = BASE_QUICK_REPLIES
     return result
 
 
@@ -248,6 +260,25 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         )
         return JSONResponse(kakao_response(HARMFUL_MESSAGE))
 
+    # 저장하기 확인
+    if utterance == "저장하기":
+        data = pending_gem.get(user_id)
+        if not data:
+            return JSONResponse(kakao_response("저장할 원석이 없어요. 일상을 먼저 보내주세요!"))
+        if not check_and_increment(user_id):
+            del pending_gem[user_id]
+            return JSONResponse(kakao_response(
+                "오늘 채집 바구니가 가득 찼습니다! 🧺\n"
+                "5개를 모두 줍다니 엄청난 하루를 보내셨군요!\n\n"
+                "아이템은 모두 주웠지만, 일상 속 소중한 순간은 계속 모을 수 있어요."
+            ))
+        background_tasks.add_task(save_gem, user_id, data["gem"], data["text"], data["has_photo"], data.get("image_url"))
+        del pending_gem[user_id]
+        return JSONResponse(kakao_response(
+            f"일상 속 순간 채집이 완료됐어요! {data['gem']} 원석으로 저장해줄게요.\n"
+            f"오늘 주운 원석은 아래 가방 속에서 확인해볼 수 있어요!"
+        ))
+
     # 퀵 버튼으로 감정 직접 선택
     if utterance in EMOTION_TO_GEM:
         gem = EMOTION_TO_GEM[utterance]
@@ -292,8 +323,6 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if not utterance:
         return JSONResponse(kakao_response("조금 더 자세히 감정을 알려주실 수 있나요?"))
 
-    quota_available = check_and_increment(user_id)
-
     gem = classify_emotion(utterance)
     if gem == "TIMEOUT":
         return JSONResponse(kakao_response(
@@ -322,31 +351,24 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             show_emotion_buttons=True
         ))
 
-    # 채집권 소진 - 기록은 받되 원석 미제공
-    if not quota_available:
-        return JSONResponse(kakao_response(
-            "오늘 채집 바구니가 가득 찼습니다! 🧺\n"
-            "5개를 모두 줍다니 엄청난 하루를 보내셨군요!\n\n"
-            "아이템은 모두 주웠지만, 일상 속 소중한 순간은 계속 모을 수 있어요."        ))
-
     # 사진+텍스트 기반 (10분 이내)
     photo_data = pending_photo.get(user_id)
     if photo_data and datetime.now() - photo_data["time"] <= PHOTO_TIMEOUT:
         image_url = photo_data["url"]
         del pending_photo[user_id]
-        background_tasks.add_task(save_gem, user_id, gem, utterance, True, image_url)
+        pending_gem[user_id] = {"gem": gem, "text": utterance, "has_photo": True, "image_url": image_url}
         return JSONResponse(kakao_response(
-            f"사진과 함께 저장하는 일상이라니! 정말 좋은 순간을 찾아왔군요. 🌟\n"
-            f"{gem} 원석으로 지금을 저장해줄게요.\n"
-            f"이 원석은 조금 더 특별하게 사용할 수 있어요!"        ))
+            f"사진과 함께 발견한 {gem} 원석이에요! ✨\n저장할까요?",
+            show_save_button=True
+        ))
 
     # 타임아웃 초과 시 pending 제거
     if user_id in pending_photo:
         del pending_photo[user_id]
 
-    # 텍스트 기반
-    background_tasks.add_task(save_gem, user_id, gem, utterance, False)
+    # 텍스트 기반 - pending_gem에 임시 저장
+    pending_gem[user_id] = {"gem": gem, "text": utterance, "has_photo": False, "image_url": None}
     return JSONResponse(kakao_response(
-        f"일상 속 순간 채집이 완료됐어요! {gem} 원석으로 저장해줄게요.\n"
-        f"오늘 주운 원석은 아래 가방 속에서 확인해볼 수 있어요!"
+        f"일상 속 순간에서 {gem} 원석을 발견했어요! ✨\n저장할까요?",
+        show_save_button=True
     ))
