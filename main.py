@@ -189,6 +189,10 @@ SAVE_QUICK_REPLIES = [
     {"label": "도감 📖", "action": "message", "messageText": "도감"},
 ]
 
+SAVE_ONLY_QUICK_REPLIES = [
+    {"label": "저장하기 💎", "action": "message", "messageText": "저장하기"},
+]
+
 
 def kakao_response(text: str, show_emotion_buttons: bool = False, hide_buttons: bool = False, show_save_button: bool = False, custom_replies: list = None) -> dict:
     result = {
@@ -300,7 +304,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         gem = EMOTION_TO_GEM[utterance]
         sel = pending_emotion_selection.get(user_id)
         if sel and utterance in sel["emotions"]:
-            # 복수 감정 중 메인 감정 선택 → 저장 대기
+            # 복수 감정 중 메인 감정 선택 → 저장 대기 (인벤/도감 숨김)
             del pending_emotion_selection[user_id]
             pending_gem[user_id] = {
                 "gem": gem, "text": sel["text"],
@@ -308,7 +312,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             }
             return JSONResponse(kakao_response(
                 f"{gem} 원석을 선택하셨어요! ✨\n저장할까요?",
-                show_save_button=True
+                custom_replies=SAVE_ONLY_QUICK_REPLIES
             ))
         existing = pending_gem.get(user_id)
         if existing:
