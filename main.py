@@ -374,6 +374,13 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if not utterance:
         return JSONResponse(kakao_response("조금 더 자세히 감정을 알려주실 수 있나요?"))
 
+    if len(utterance) < 8:
+        return JSONResponse(kakao_response(
+            "순간을 조금 더 담아주세요 🪨\n"
+            "어떤 일이 있었는지, 어떤 기분이었는지 적어주시면\n"
+            "딱 맞는 원석을 찾아드릴게요!"
+        ))
+
     result = classify_emotion(utterance)
     if result == "TIMEOUT":
         return JSONResponse(kakao_response(
