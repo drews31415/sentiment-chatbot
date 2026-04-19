@@ -416,7 +416,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         }
         emotion_buttons = [
             {"label": e, "action": "message", "messageText": e} for e in emotion_words
-        ] + BASE_QUICK_REPLIES
+        ]
         return JSONResponse(kakao_response(
             f"이 순간엔 여러 감정이 담겨있네요!\n"
             f"가장 크게 느껴진 감정을 골라주세요 💎",
