@@ -27,25 +27,26 @@ venv\Scripts\pip install -r requirements.txt
 
 **인메모리 상태 (서버 재시작 시 초기화):**
 - `user_count` — 유저별 하루 5회 채집권 카운트
-- `pending_photo` — 사진 전송 후 텍스트 대기 상태 (10분 타임아웃)
+- `pending_photo` — 사진 전송 후 텍스트 대기 상태 `{"time": datetime, "url": str}` (10분 타임아웃)
 - `classify_fail_count` — 유저별 감정 분류 연속 실패 횟수 (2회 시 운영자 알림)
 
 **주요 로직 (webhook 처리 순서):**
 1. 위험/유해 키워드 감지 → 즉시 응답 + 이메일 알림
 2. 감정 퀵 버튼 직접 선택 (`EMOTION_TO_GEM` 딕셔너리 매칭)
-3. 원석 조회 ("내 원석", "원석 보기", "가방")
-4. 이미지 URL 감지 → `pending_photo` 등록 + 텍스트 유도
-5. 채집권 체크 (`check_and_increment`)
-6. AI 감정 분류 (`classify_emotion`) — timeout=4s (카카오 스킬 5초 제한)
-7. 분류 실패 시 퀵 버튼 노출, 2회 연속 실패 시 운영자 이메일 알림
-8. 채집권 소진 시 기록은 허용하되 원석 미제공
-9. `pending_photo` 확인 → 10분 이내면 사진+텍스트 분류
-10. Supabase 저장 (BackgroundTasks로 비동기 처리)
+3. 도감 조회 ("도감")
+4. 원석 조회 ("내 원석", "원석 보기", "가방", "인벤토리")
+5. 이미지 URL 감지 → `pending_photo` 등록 + 텍스트 유도 (버튼 숨김)
+6. 채집권 체크 (`check_and_increment`)
+7. AI 감정 분류 (`classify_emotion`) — timeout=4s (카카오 스킬 5초 제한)
+8. 분류 실패 시 퀵 버튼 노출, 2회 연속 실패 시 운영자 이메일 알림
+9. 채집권 소진 시 기록은 허용하되 원석 미제공
+10. `pending_photo` 확인 → 10분 이내면 사진+텍스트 분류 (image_url 포함 저장)
+11. Supabase 저장 (BackgroundTasks로 비동기 처리)
 
 **카카오 응답 포맷:**
 - 텍스트: `simpleText`
 - 원석 목록: `basicCard` (1개) 또는 `carousel` (복수)
-- 퀵 리플라이: `quickReplies` (원석 보기 버튼 또는 감정 10개 버튼)
+- 퀵 리플라이: 기본 `[인벤토리 👜, 도감 📖]` 항상 노출 / 분류 실패 시 감정 10개 추가 / 사진 유도 시 숨김
 
 **이메일 알림 발송 시점:**
 - 위험 키워드 감지
@@ -81,6 +82,9 @@ create table gems (
   gem text not null,
   record_text text,
   has_photo boolean default false,
+  image_url text,
   created_at timestamptz default now()
 );
 ```
+
+Storage: `gem-images` 버킷 (Public) — 원석 이미지 호스팅용
