@@ -20,6 +20,7 @@ app = FastAPI()
 user_count: dict = {}  # { "유저ID": {"date": date, "count": int} }
 pending_photo: dict = {}  # { "유저ID": {"time": datetime, "url": str} }
 pending_gem: dict = {}  # { "유저ID": {"gem": str, "text": str, "has_photo": bool, "image_url": str|None} }
+pending_emotion_selection: dict = {}  # { "유저ID": {"emotions": [emotion_word], "text": str, "has_photo": bool, "image_url": str|None} }
 classify_fail_count: dict = {}  # { "유저ID": int } 감정 분류 실패 횟수
 
 PHOTO_TIMEOUT = timedelta(minutes=10)
@@ -56,7 +57,7 @@ def is_image_url(text: str) -> bool:
     )
 
 
-def classify_emotion(text: str) -> str | None:
+def classify_emotion(text: str) -> list[str] | str | None:
     try:
         response = requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
@@ -67,11 +68,12 @@ def classify_emotion(text: str) -> str | None:
                     {
                         "role": "user",
                         "content": (
-                            "다음 일상 기록을 읽고 감정을 하나의 원석 이름으로만 답해줘.\n"
+                            "다음 일상 기록을 읽고 담긴 감정을 분석해줘.\n"
                             "감정-원석 매핑:\n"
                             "무탈→월장석, 평온→아쿠아마린, 뿌듯→황수정, 기쁨→루비, 만족→앰버, "
                             "설렘→로즈쿼츠, 슬픔→사파이어, 짜증→가넷, 후회→연수정, 위로→오팔\n"
-                            "원석 이름만 한 단어로 답해. 다른 말은 하지 마.\n\n"
+                            "기록에 여러 감정이 담겨있으면 해당하는 원석 이름들을 쉼표로만 구분해서 답해줘. "
+                            "감정이 하나라면 원석 이름 하나만 답해줘. 다른 말은 절대 하지 마.\n\n"
                             f"일상 기록: {text}"
                         ),
                     },
@@ -79,8 +81,9 @@ def classify_emotion(text: str) -> str | None:
             },
             timeout=4,
         )
-        result = response.json()["choices"][0]["message"]["content"].strip()
-        return result if result else None
+        raw = response.json()["choices"][0]["message"]["content"].strip()
+        gems = [g.strip() for g in raw.split(",") if g.strip()]
+        return gems if gems else None
     except requests.Timeout:
         return "TIMEOUT"
     except Exception as e:
@@ -171,6 +174,7 @@ EMOTION_TO_GEM = {
     "기쁨": "루비", "만족": "앰버", "설렘": "로즈쿼츠",
     "슬픔": "사파이어", "짜증": "가넷", "후회": "연수정", "위로": "오팔",
 }
+GEM_TO_EMOTION = {v: k for k, v in EMOTION_TO_GEM.items()}
 
 
 BASE_QUICK_REPLIES = [
@@ -185,7 +189,7 @@ SAVE_QUICK_REPLIES = [
 ]
 
 
-def kakao_response(text: str, show_emotion_buttons: bool = False, hide_buttons: bool = False, show_save_button: bool = False) -> dict:
+def kakao_response(text: str, show_emotion_buttons: bool = False, hide_buttons: bool = False, show_save_button: bool = False, custom_replies: list = None) -> dict:
     result = {
         "version": "2.0",
         "template": {
@@ -193,7 +197,9 @@ def kakao_response(text: str, show_emotion_buttons: bool = False, hide_buttons: 
         },
     }
     if not hide_buttons:
-        if show_save_button:
+        if custom_replies is not None:
+            result["template"]["quickReplies"] = custom_replies
+        elif show_save_button:
             result["template"]["quickReplies"] = SAVE_QUICK_REPLIES
         elif show_emotion_buttons:
             result["template"]["quickReplies"] = EMOTION_QUICK_REPLIES + BASE_QUICK_REPLIES
@@ -279,15 +285,29 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             f"오늘 주운 원석은 아래 가방 속에서 확인해볼 수 있어요!"
         ))
 
-    # 퀵 버튼으로 감정 직접 선택
+    # 퀵 버튼으로 감정 선택 (복수 감정 확인 중 or 분류 실패 시 직접 선택)
     if utterance in EMOTION_TO_GEM:
         gem = EMOTION_TO_GEM[utterance]
+        sel = pending_emotion_selection.get(user_id)
+        if sel and utterance in sel["emotions"]:
+            # 복수 감정 중 메인 감정 선택 → 저장 대기
+            del pending_emotion_selection[user_id]
+            pending_gem[user_id] = {
+                "gem": gem, "text": sel["text"],
+                "has_photo": sel["has_photo"], "image_url": sel.get("image_url"),
+            }
+            return JSONResponse(kakao_response(
+                f"{gem} 원석을 선택하셨어요! ✨\n저장할까요?",
+                show_save_button=True
+            ))
+        # 분류 실패 시 직접 선택 → 즉시 저장
         if not check_and_increment(user_id):
             return JSONResponse(kakao_response("오늘 채집권을 모두 사용했어요! 내일 또 만나요 🌙"))
         background_tasks.add_task(save_gem, user_id, gem, utterance, False)
         return JSONResponse(kakao_response(
             f"일상 속 순간 채집이 완료됐어요! {gem} 원석으로 저장해줄게요.\n"
-            f"오늘 주운 원석은 아래 가방 속에서 확인해볼 수 있어요!"        ))
+            f"오늘 주운 원석은 아래 가방 속에서 확인해볼 수 있어요!"
+        ))
 
     # 도감 조회
     if utterance == "도감":
@@ -331,14 +351,15 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if not utterance:
         return JSONResponse(kakao_response("조금 더 자세히 감정을 알려주실 수 있나요?"))
 
-    gem = classify_emotion(utterance)
-    if gem == "TIMEOUT":
+    result = classify_emotion(utterance)
+    if result == "TIMEOUT":
         return JSONResponse(kakao_response(
             "현재 세공소에 광물이 몰려 분류에 시간이 조금 걸리고 있어요!\n"
             "조금만 기다리면 세공소 주인장을 불러올게요 🛠️"
         ))
     VALID_GEMS = set(EMOTION_TO_GEM.values())
-    if not gem or gem not in VALID_GEMS:
+    valid_gems = [g for g in (result or []) if g in VALID_GEMS]
+    if not valid_gems:
         fail_count = classify_fail_count.get(user_id, 0) + 1
         classify_fail_count[user_id] = fail_count
         if fail_count >= 2:
@@ -359,23 +380,39 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             show_emotion_buttons=True
         ))
 
-    # 사진+텍스트 기반 (10분 이내)
+    # 사진+텍스트 여부 확인
     photo_data = pending_photo.get(user_id)
-    if photo_data and datetime.now() - photo_data["time"] <= PHOTO_TIMEOUT:
-        image_url = photo_data["url"]
+    has_photo = bool(photo_data and datetime.now() - photo_data["time"] <= PHOTO_TIMEOUT)
+    image_url = photo_data["url"] if has_photo else None
+    if has_photo:
         del pending_photo[user_id]
-        pending_gem[user_id] = {"gem": gem, "text": utterance, "has_photo": True, "image_url": image_url}
+    elif user_id in pending_photo:
+        del pending_photo[user_id]
+
+    # 복수 감정 감지 → 메인 감정 선택 요청
+    if len(valid_gems) >= 2:
+        emotion_words = [GEM_TO_EMOTION[g] for g in valid_gems if g in GEM_TO_EMOTION]
+        pending_emotion_selection[user_id] = {
+            "emotions": emotion_words, "text": utterance,
+            "has_photo": has_photo, "image_url": image_url,
+        }
+        emotion_buttons = [
+            {"label": e, "action": "message", "messageText": e} for e in emotion_words
+        ] + BASE_QUICK_REPLIES
+        return JSONResponse(kakao_response(
+            f"이 순간엔 여러 감정이 담겨있네요!\n"
+            f"가장 크게 느껴진 감정을 골라주세요 💎",
+            custom_replies=emotion_buttons
+        ))
+
+    # 단일 감정 → 저장 대기
+    gem = valid_gems[0]
+    pending_gem[user_id] = {"gem": gem, "text": utterance, "has_photo": has_photo, "image_url": image_url}
+    if has_photo:
         return JSONResponse(kakao_response(
             f"사진과 함께 발견한 {gem} 원석이에요! ✨\n저장할까요?",
             show_save_button=True
         ))
-
-    # 타임아웃 초과 시 pending 제거
-    if user_id in pending_photo:
-        del pending_photo[user_id]
-
-    # 텍스트 기반 - pending_gem에 임시 저장
-    pending_gem[user_id] = {"gem": gem, "text": utterance, "has_photo": False, "image_url": None}
     return JSONResponse(kakao_response(
         f"일상 속 순간에서 {gem} 원석을 발견했어요! ✨\n저장할까요?",
         show_save_button=True
