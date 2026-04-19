@@ -191,6 +191,7 @@ SAVE_QUICK_REPLIES = [
 
 SAVE_ONLY_QUICK_REPLIES = [
     {"label": "저장하기 💎", "action": "message", "messageText": "저장하기"},
+    {"label": "다른 감정 선택 🔄", "action": "message", "messageText": "다른 감정 선택"},
 ]
 
 
