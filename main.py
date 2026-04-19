@@ -184,6 +184,7 @@ BASE_QUICK_REPLIES = [
 
 SAVE_QUICK_REPLIES = [
     {"label": "저장하기 💎", "action": "message", "messageText": "저장하기"},
+    {"label": "다른 감정 선택 🔄", "action": "message", "messageText": "다른 감정 선택"},
     {"label": "인벤토리 👜", "action": "message", "messageText": "내 원석"},
     {"label": "도감 📖", "action": "message", "messageText": "도감"},
 ]
@@ -266,6 +267,15 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         )
         return JSONResponse(kakao_response(HARMFUL_MESSAGE))
 
+    # 다른 감정 선택
+    if utterance == "다른 감정 선택":
+        if user_id not in pending_gem:
+            return JSONResponse(kakao_response("저장 대기 중인 원석이 없어요. 일상을 먼저 보내주세요!"))
+        return JSONResponse(kakao_response(
+            "어떤 감정이 더 잘 맞나요? 골라주세요!",
+            show_emotion_buttons=True
+        ))
+
     # 저장하기 확인
     if utterance == "저장하기":
         data = pending_gem.get(user_id)
@@ -285,7 +295,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             f"오늘 주운 원석은 아래 가방 속에서 확인해볼 수 있어요!"
         ))
 
-    # 퀵 버튼으로 감정 선택 (복수 감정 확인 중 or 분류 실패 시 직접 선택)
+    # 퀵 버튼으로 감정 선택 (복수 감정 확인 중 / 다른 감정 선택 중 / 분류 실패 시 직접 선택)
     if utterance in EMOTION_TO_GEM:
         gem = EMOTION_TO_GEM[utterance]
         sel = pending_emotion_selection.get(user_id)
@@ -298,6 +308,14 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             }
             return JSONResponse(kakao_response(
                 f"{gem} 원석을 선택하셨어요! ✨\n저장할까요?",
+                show_save_button=True
+            ))
+        existing = pending_gem.get(user_id)
+        if existing:
+            # 다른 감정으로 교체 → 저장 대기 유지
+            existing["gem"] = gem
+            return JSONResponse(kakao_response(
+                f"{gem} 원석으로 바꿨어요! ✨\n저장할까요?",
                 show_save_button=True
             ))
         # 분류 실패 시 직접 선택 → 즉시 저장
