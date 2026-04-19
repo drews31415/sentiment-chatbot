@@ -181,6 +181,8 @@ EMOTION_TO_GEM = {
 GEM_TO_EMOTION = {v: k for k, v in EMOTION_TO_GEM.items()}
 
 
+WEB_URL = "https://frontend-production-09f81.up.railway.app/login"
+
 BASE_QUICK_REPLIES = [
     {"label": "인벤토리 👜", "action": "message", "messageText": "내 원석"},
     {"label": "도감 📖", "action": "message", "messageText": "도감"},
@@ -216,6 +218,30 @@ def kakao_response(text: str, show_emotion_buttons: bool = False, hide_buttons: 
         else:
             result["template"]["quickReplies"] = BASE_QUICK_REPLIES
     return result
+
+
+def kakao_save_complete(gem: str) -> dict:
+    return {
+        "version": "2.0",
+        "template": {
+            "outputs": [
+                {
+                    "basicCard": {
+                        "title": f"✨ {gem} 원석 채집 완료!",
+                        "description": "일상 속 순간을 원석으로 저장했어요.\n오늘 주운 원석은 가방에서 확인해볼 수 있어요!",
+                        "buttons": [
+                            {
+                                "action": "webLink",
+                                "label": "닥토 공방 열기 🌐",
+                                "webLinkUrl": WEB_URL,
+                            }
+                        ],
+                    }
+                }
+            ],
+            "quickReplies": BASE_QUICK_REPLIES,
+        },
+    }
 
 
 def kakao_carousel(gems: list) -> dict:
@@ -299,10 +325,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             ))
         background_tasks.add_task(save_gem, user_id, data["gem"], data["text"], data["has_photo"], data.get("image_url"))
         del pending_gem[user_id]
-        return JSONResponse(kakao_response(
-            f"일상 속 순간 채집이 완료됐어요! {data['gem']} 원석으로 저장해줄게요.\n"
-            f"오늘 주운 원석은 아래 가방 속에서 확인해볼 수 있어요!"
-        ))
+        return JSONResponse(kakao_save_complete(data["gem"]))
 
     # 퀵 버튼으로 감정 선택 (복수 감정 확인 중 / 다른 감정 선택 중 / 분류 실패 시 직접 선택)
     if utterance in EMOTION_TO_GEM:
@@ -331,10 +354,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         if not check_and_increment(user_id):
             return JSONResponse(kakao_response("오늘 채집권을 모두 사용했어요! 내일 또 만나요 🌙"))
         background_tasks.add_task(save_gem, user_id, gem, utterance, False)
-        return JSONResponse(kakao_response(
-            f"일상 속 순간 채집이 완료됐어요! {gem} 원석으로 저장해줄게요.\n"
-            f"오늘 주운 원석은 아래 가방 속에서 확인해볼 수 있어요!"
-        ))
+        return JSONResponse(kakao_save_complete(gem))
 
     # 도감 조회
     if utterance == "도감":
