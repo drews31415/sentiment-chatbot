@@ -28,25 +28,50 @@ venv\Scripts\pip install -r requirements.txt
 **인메모리 상태 (서버 재시작 시 초기화):**
 - `user_count` — 유저별 하루 5회 채집권 카운트
 - `pending_photo` — 사진 전송 후 텍스트 대기 상태 `{"time": datetime, "url": str}` (10분 타임아웃)
+- `pending_gem` — AI 분류 후 저장 대기 상태 `{"gem": str, "text": str, "has_photo": bool, "image_url": str|None}`
+- `pending_emotion_selection` — 복수 감정 감지 후 선택 대기 상태 `{"emotions": [emotion_word], "text": str, "has_photo": bool, "image_url": str|None}`
 - `classify_fail_count` — 유저별 감정 분류 연속 실패 횟수 (2회 시 운영자 알림)
 
 **주요 로직 (webhook 처리 순서):**
 1. 위험/유해 키워드 감지 → 즉시 응답 + 이메일 알림
-2. 감정 퀵 버튼 직접 선택 (`EMOTION_TO_GEM` 딕셔너리 매칭)
-3. 도감 조회 ("도감")
-4. 원석 조회 ("내 원석", "원석 보기", "가방", "인벤토리")
-5. 이미지 URL 감지 → `pending_photo` 등록 + 텍스트 유도 (버튼 숨김)
-6. 채집권 체크 (`check_and_increment`)
-7. AI 감정 분류 (`classify_emotion`) — timeout=4s (카카오 스킬 5초 제한)
-8. 분류 실패 시 퀵 버튼 노출, 2회 연속 실패 시 운영자 이메일 알림
-9. 채집권 소진 시 기록은 허용하되 원석 미제공
-10. `pending_photo` 확인 → 10분 이내면 사진+텍스트 분류 (image_url 포함 저장)
-11. Supabase 저장 (BackgroundTasks로 비동기 처리)
+2. "다른 감정 선택" → 10개 감정 퀵버튼 노출 (pending_gem 유지)
+3. "저장하기" → pending_gem 꺼내 채집권 차감 후 Supabase 저장
+4. 감정 퀵버튼 선택 (`EMOTION_TO_GEM` 매칭):
+   - `pending_emotion_selection` 중이면 → 선택 감정으로 pending_gem 등록
+   - `pending_gem` 있으면 → 원석 교체
+   - 그 외 → 즉시 저장 (분류 실패 직접 선택)
+5. 도감 조회 ("도감")
+6. 원석 조회 ("내 원석", "원석 보기", "가방", "인벤토리")
+7. 이미지 URL 감지 → `pending_photo` 등록 + 텍스트 유도 (버튼 숨김)
+8. AI 감정 분류 (`classify_emotion`) — timeout=4s (카카오 스킬 5초 제한)
+   - `NOT_RECORD` 반환 시 → 더 자세히 적도록 안내
+   - `TIMEOUT` 반환 시 → 타임아웃 안내
+   - 분류 실패 시 → 퀵버튼 노출, 2회 연속 실패 시 운영자 이메일 알림
+9. 복수 감정 감지 시 → `pending_emotion_selection` 등록 + 감지된 감정만 퀵버튼 노출
+10. 단일 감정 → `pending_gem` 등록 + "저장하기/다른 감정 선택" 버튼 노출
+11. 저장 완료 → `kakao_save_complete()` (basicCard + 웹링크 버튼)
+
+**채집권 차감 시점:**
+- "저장하기" 클릭 시 (AI 분류 시점이 아님)
+- 분류 실패 후 퀵버튼 직접 선택 시
 
 **카카오 응답 포맷:**
 - 텍스트: `simpleText`
+- 채집 완료: `basicCard` (제목: `원석(감정) 원석 채집 완료!` + 웹링크 버튼)
 - 원석 목록: `basicCard` (1개) 또는 `carousel` (복수)
-- 퀵 리플라이: 기본 `[인벤토리 👜, 도감 📖]` 항상 노출 / 분류 실패 시 감정 10개 추가 / 사진 유도 시 숨김
+- 퀵 리플라이:
+  - 기본: `[인벤토리 👜, 도감 📖]`
+  - 저장 대기: `[저장하기 💎, 다른 감정 선택 🔄, 인벤토리 👜, 도감 📖]`
+  - 복수 감정 선택: 감지된 감정 버튼만
+  - 복수 감정 선택 후 확인: `[저장하기 💎, 다른 감정 선택 🔄]`
+  - 분류 실패: 감정 10개 + 기본
+  - 사진 유도: 숨김
+
+**classify_emotion() 반환값:**
+- `list[str]` — 원석 이름 리스트 (단일 또는 복수)
+- `"NOT_RECORD"` — 일상 기록이 아님 (인사말 등)
+- `"TIMEOUT"` — 4초 초과
+- `None` — 기타 오류
 
 **이메일 알림 발송 시점:**
 - 위험 키워드 감지
