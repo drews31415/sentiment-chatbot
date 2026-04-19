@@ -68,13 +68,15 @@ def classify_emotion(text: str) -> list[str] | str | None:
                     {
                         "role": "user",
                         "content": (
-                            "다음 일상 기록을 읽고 담긴 감정을 분석해줘.\n"
+                            "다음 입력이 일상 기록인지 판단해줘.\n"
+                            "인사말, 단순 질문, 의미 없는 말(예: 하이, 안녕, ㅎㅎ, 테스트 등)이면 '기록아님'이라고만 답해.\n"
+                            "일상 기록이라면 담긴 감정을 분석해서 아래 매핑에 맞는 원석 이름으로 답해줘.\n"
                             "감정-원석 매핑:\n"
                             "무탈→월장석, 평온→아쿠아마린, 뿌듯→황수정, 기쁨→루비, 만족→앰버, "
                             "설렘→로즈쿼츠, 슬픔→사파이어, 짜증→가넷, 후회→연수정, 위로→오팔\n"
-                            "기록에 여러 감정이 담겨있으면 해당하는 원석 이름들을 쉼표로만 구분해서 답해줘. "
+                            "여러 감정이 담겨있으면 원석 이름들을 쉼표로만 구분해서 답해줘. "
                             "감정이 하나라면 원석 이름 하나만 답해줘. 다른 말은 절대 하지 마.\n\n"
-                            f"일상 기록: {text}"
+                            f"입력: {text}"
                         ),
                     },
                 ],
@@ -82,6 +84,8 @@ def classify_emotion(text: str) -> list[str] | str | None:
             timeout=4,
         )
         raw = response.json()["choices"][0]["message"]["content"].strip()
+        if raw == "기록아님":
+            return "NOT_RECORD"
         gems = [g.strip() for g in raw.split(",") if g.strip()]
         return gems if gems else None
     except requests.Timeout:
@@ -374,14 +378,13 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if not utterance:
         return JSONResponse(kakao_response("조금 더 자세히 감정을 알려주실 수 있나요?"))
 
-    if len(utterance) < 8:
+    result = classify_emotion(utterance)
+    if result == "NOT_RECORD":
         return JSONResponse(kakao_response(
             "순간을 조금 더 담아주세요 🪨\n"
             "어떤 일이 있었는지, 어떤 기분이었는지 적어주시면\n"
             "딱 맞는 원석을 찾아드릴게요!"
         ))
-
-    result = classify_emotion(utterance)
     if result == "TIMEOUT":
         return JSONResponse(kakao_response(
             "현재 세공소에 광물이 몰려 분류에 시간이 조금 걸리고 있어요!\n"
