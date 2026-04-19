@@ -291,6 +291,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
     # 도감 조회
     if utterance == "도감":
+        has_pending = user_id in pending_gem
         return JSONResponse(kakao_response(
             "📖 닥토 공방 원석 도감\n\n"
             "✨ 채집 가능한 원석 10가지\n\n"
@@ -305,15 +306,22 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             "🤎 연수정 — 후회되고 아쉬운 순간\n"
             "🫧 오팔 — 힘들고 위로받고 싶은 순간\n\n"
             "하루 최대 5개까지 채집할 수 있어요.\n"
-            "오늘은 어떤 원석을 주워볼까요? 🧳"
+            "오늘은 어떤 원석을 주워볼까요? 🧳",
+            show_save_button=has_pending
         ))
 
     # 원석 가방 조회
     if utterance in ("내 원석", "원석 보기", "가방", "인벤토리"):
         gems = get_gems(user_id)
         if not gems:
-            return JSONResponse(kakao_response("아직 채집한 원석이 없어요!\n일상을 보내주시면 원석으로 저장해드릴게요. 🪨"))
-        return JSONResponse(kakao_carousel(gems))
+            return JSONResponse(kakao_response(
+                "아직 채집한 원석이 없어요!\n일상을 보내주시면 원석으로 저장해드릴게요. 🪨",
+                show_save_button=(user_id in pending_gem)
+            ))
+        response = kakao_carousel(gems)
+        if user_id in pending_gem:
+            response["template"]["quickReplies"] = SAVE_QUICK_REPLIES
+        return JSONResponse(response)
 
     # 사진 전송
     if is_image_url(utterance):
