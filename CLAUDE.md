@@ -95,7 +95,7 @@ GMAIL_APP_PASSWORD=
 
 ## 배포
 
-- **운영**: Railway (`https://sentiment-chatbot.up.railway.app/webhook`)
+- **운영**: Railway (`https://sentiment-chatbot-production.up.railway.app/webhook`)
 - **개발**: ngrok → 오픈빌더 스킬 URL 임시 교체
 
 ## Supabase 스키마
