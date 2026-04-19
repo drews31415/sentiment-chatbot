@@ -221,13 +221,15 @@ def kakao_response(text: str, show_emotion_buttons: bool = False, hide_buttons: 
 
 
 def kakao_save_complete(gem: str) -> dict:
+    emotion = GEM_TO_EMOTION.get(gem, "")
+    gem_label = f"{gem}({emotion})" if emotion else gem
     return {
         "version": "2.0",
         "template": {
             "outputs": [
                 {
                     "basicCard": {
-                        "title": f"✨ {gem} 원석 채집 완료!",
+                        "title": f"✨ {gem_label} 원석 채집 완료!",
                         "description": "일상 속 순간을 원석으로 저장했어요.\n오늘 주운 원석은 가방에서 확인해볼 수 있어요!",
                         "buttons": [
                             {
