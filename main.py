@@ -83,10 +83,13 @@ def classify_emotion(text: str) -> list[str] | str | None:
         )
         raw = response.json()["choices"][0]["message"]["content"].strip()
         print(f"[classify_emotion raw] {raw}")
-        if raw == "기록아님":
+        if "기록아님" in raw:
             return "NOT_RECORD"
-        gems = [g.strip() for g in raw.split(",") if g.strip()]
-        return gems if gems else None
+        valid_gem_names = set(EMOTION_TO_GEM.values())
+        found = [g for g in valid_gem_names if g in raw]
+        if not found:
+            found = [EMOTION_TO_GEM[e] for e in EMOTION_TO_GEM if e in raw]
+        return found if found else None
     except requests.Timeout:
         return "TIMEOUT"
     except Exception as e:
