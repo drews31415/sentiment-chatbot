@@ -49,14 +49,14 @@ venv\Scripts\pip install -r requirements.txt
    - 분류 실패 시 → pending_gem에 원본 텍스트 보존(gem=None) + 퀵버튼 노출, 2회 연속 실패 시 운영자 이메일 알림
 9. 복수 감정 감지 시 → `pending_emotion_selection` 등록 + 감지된 감정만 퀵버튼 노출
 10. 단일 감정 → `pending_gem` 등록 + "저장하기/다른 감정 선택" 버튼 노출
-11. 저장 완료 → `kakao_save_complete()` (basicCard + 웹링크 버튼)
+11. 저장 완료 → `kakao_save_complete()` (basicCard + 원석 이미지 썸네일 + 웹링크 버튼)
 
 **채집권 차감 시점:**
 - "저장하기" 클릭 시 (AI 분류 시점이 아님, 분류 실패 후 감정 선택 포함)
 
 **카카오 응답 포맷:**
 - 텍스트: `simpleText`
-- 채집 완료: `basicCard` (제목: `원석(감정) 원석 채집 완료!` + 웹링크 버튼)
+- 채집 완료: `basicCard` (썸네일: 원석 이미지, 제목: `원석(감정) 원석 채집 완료!` + 웹링크 버튼)
 - 원석 목록: `basicCard` (1개) 또는 `carousel` (복수)
 - 퀵 리플라이:
   - 기본: `[인벤토리 👜, 도감 📖]`
@@ -120,3 +120,5 @@ create table gems (
 - `ai_gems` — AI 초기 판단 원석 (단일: "루비", 복수: "루비,사파이어", 분류 실패: null)
 
 Storage: `gem-images` 버킷 (Public) — 원석 이미지 호스팅용 (영롱한 보석 단계 10종)
+- 파일명: ruby, amber, aquamarine, rose_quartz, citrine, moonstone, sapphire, garnet, smoky_quartz, opal (.png)
+- `GEM_IMAGE_URL` 딕셔너리로 원석명 → URL 매핑, `kakao_save_complete()`에서 thumbnail으로 사용
