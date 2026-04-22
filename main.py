@@ -72,7 +72,7 @@ def classify_emotion(text: str) -> list[str] | str | None:
     )
     try:
         response = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key={GOOGLE_API_KEY}",
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={GOOGLE_API_KEY}",
             json={"contents": [{"parts": [{"text": prompt}]}]},
             timeout=4,
         )
