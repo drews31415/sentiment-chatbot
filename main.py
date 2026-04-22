@@ -76,7 +76,7 @@ def classify_emotion(text: str) -> list[str] | str | None:
             "https://api.groq.com/openai/v1/chat/completions",
             headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
             json={
-                "model": "gemma2-9b-it",
+                "model": "llama-3.1-8b-instant",
                 "messages": [{"role": "user", "content": prompt}],
             },
             timeout=4,
