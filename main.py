@@ -82,6 +82,7 @@ def classify_emotion(text: str) -> list[str] | str | None:
             timeout=4,
         )
         raw = response.json()["choices"][0]["message"]["content"].strip()
+        print(f"[classify_emotion raw] {raw}")
         if raw == "기록아님":
             return "NOT_RECORD"
         gems = [g.strip() for g in raw.split(",") if g.strip()]
