@@ -342,16 +342,18 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
                 "gem": gem, "text": sel["text"],
                 "has_photo": sel["has_photo"], "image_url": sel.get("image_url"),
             }
+            gem_label = f"{gem}({utterance})"
             return JSONResponse(kakao_response(
-                f"{gem} 원석을 선택하셨어요! ✨\n저장할까요?",
+                f"{gem_label} 원석을 선택하셨어요! ✨\n저장할까요?",
                 custom_replies=SAVE_ONLY_QUICK_REPLIES
             ))
         existing = pending_gem.get(user_id)
         if existing:
             # 다른 감정으로 교체 → 저장 대기 유지
             existing["gem"] = gem
+            gem_label = f"{gem}({utterance})"
             return JSONResponse(kakao_response(
-                f"{gem} 원석으로 바꿨어요! ✨\n저장할까요?",
+                f"{gem_label} 원석으로 바꿨어요! ✨\n저장할까요?",
                 show_save_button=True
             ))
         # pending_gem 없는 상태에서 감정 단어 입력 → 일상 기록 먼저 요청
@@ -471,13 +473,15 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
     # 단일 감정 → 저장 대기
     gem = valid_gems[0]
+    emotion = GEM_TO_EMOTION.get(gem, "")
+    gem_label = f"{gem}({emotion})" if emotion else gem
     pending_gem[user_id] = {"gem": gem, "text": utterance, "has_photo": has_photo, "image_url": image_url}
     if has_photo:
         return JSONResponse(kakao_response(
-            f"사진과 함께 발견한 {gem} 원석이에요! ✨\n저장할까요?",
+            f"사진과 함께 발견한 {gem_label} 원석이에요! ✨\n저장할까요?",
             show_save_button=True
         ))
     return JSONResponse(kakao_response(
-        f"일상 속 순간에서 {gem} 원석을 발견했어요! ✨\n저장할까요?",
+        f"일상 속 순간에서 {gem_label} 원석을 발견했어요! ✨\n저장할까요?",
         show_save_button=True
     ))
