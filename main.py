@@ -188,6 +188,20 @@ GEM_TO_EMOTION = {v: k for k, v in EMOTION_TO_GEM.items()}
 
 WEB_URL = "https://frontend-production-09f81.up.railway.app/login"
 
+SUPABASE_IMG = "https://tetatvafhnqbtwgfebic.supabase.co/storage/v1/object/public/gem-images"
+GEM_IMAGE_URL = {
+    "월장석": f"{SUPABASE_IMG}/moonstone.png",
+    "아쿠아마린": f"{SUPABASE_IMG}/aquamarine.png",
+    "황수정": f"{SUPABASE_IMG}/citrine.png",
+    "루비": f"{SUPABASE_IMG}/ruby.png",
+    "앰버": f"{SUPABASE_IMG}/amber.png",
+    "로즈쿼츠": f"{SUPABASE_IMG}/rose_quartz.png",
+    "사파이어": f"{SUPABASE_IMG}/sapphire.png",
+    "가넷": f"{SUPABASE_IMG}/garnet.png",
+    "연수정": f"{SUPABASE_IMG}/smoky_quartz.png",
+    "오팔": f"{SUPABASE_IMG}/opal.png",
+}
+
 BASE_QUICK_REPLIES = [
     {"label": "인벤토리 👜", "action": "message", "messageText": "내 원석"},
     {"label": "도감 📖", "action": "message", "messageText": "도감"},
@@ -228,22 +242,26 @@ def kakao_response(text: str, show_emotion_buttons: bool = False, hide_buttons: 
 def kakao_save_complete(gem: str) -> dict:
     emotion = GEM_TO_EMOTION.get(gem, "")
     gem_label = f"{gem}({emotion})" if emotion else gem
+    card = {
+        "title": f"✨ {gem_label} 원석 채집 완료!",
+        "description": "일상 속 순간을 원석으로 저장했어요.\n오늘 주운 원석은 가방에서 확인해볼 수 있어요!",
+        "buttons": [
+            {
+                "action": "webLink",
+                "label": "닥토 공방 열기 🌐",
+                "webLinkUrl": WEB_URL,
+            }
+        ],
+    }
+    img_url = GEM_IMAGE_URL.get(gem)
+    if img_url:
+        card["thumbnail"] = {"imageUrl": img_url}
     return {
         "version": "2.0",
         "template": {
             "outputs": [
                 {
-                    "basicCard": {
-                        "title": f"✨ {gem_label} 원석 채집 완료!",
-                        "description": "일상 속 순간을 원석으로 저장했어요.\n오늘 주운 원석은 가방에서 확인해볼 수 있어요!",
-                        "buttons": [
-                            {
-                                "action": "webLink",
-                                "label": "닥토 공방 열기 🌐",
-                                "webLinkUrl": WEB_URL,
-                            }
-                        ],
-                    }
+                    "basicCard": card
                 }
             ],
             "quickReplies": BASE_QUICK_REPLIES,
