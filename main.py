@@ -11,6 +11,7 @@ load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 ALERT_EMAIL = os.getenv("ALERT_EMAIL")
@@ -72,11 +73,15 @@ def classify_emotion(text: str) -> list[str] | str | None:
     )
     try:
         response = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key={GOOGLE_API_KEY}",
-            json={"contents": [{"parts": [{"text": prompt}]}]},
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+            json={
+                "model": "gemma2-9b-it",
+                "messages": [{"role": "user", "content": prompt}],
+            },
             timeout=4,
         )
-        raw = response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        raw = response.json()["choices"][0]["message"]["content"].strip()
         if raw == "기록아님":
             return "NOT_RECORD"
         gems = [g.strip() for g in raw.split(",") if g.strip()]
