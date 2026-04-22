@@ -335,6 +335,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if utterance in EMOTION_TO_GEM:
         gem = EMOTION_TO_GEM[utterance]
         sel = pending_emotion_selection.get(user_id)
+        print(f"[emotion click] utterance={utterance}, sel={sel}, pending_gem={pending_gem.get(user_id)}")
         if sel and utterance in sel["emotions"]:
             # 복수 감정 중 메인 감정 선택 → 저장 대기 (인벤/도감 숨김)
             del pending_emotion_selection[user_id]
