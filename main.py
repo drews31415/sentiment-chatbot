@@ -99,7 +99,7 @@ def classify_emotion(text: str) -> list[str] | str | None:
         return None
 
 
-def save_gem(user_id: str, gem: str, record_text: str, has_photo: bool, image_url: str = None):
+def save_gem(user_id: str, gem: str, record_text: str, has_photo: bool, image_url: str = None, ai_gems: str = None):
     try:
         data = {
             "user_id": user_id,
@@ -109,6 +109,8 @@ def save_gem(user_id: str, gem: str, record_text: str, has_photo: bool, image_ur
         }
         if image_url:
             data["image_url"] = image_url
+        if ai_gems:
+            data["ai_gems"] = ai_gems
         requests.post(
             f"{SUPABASE_URL}/rest/v1/gems",
             headers={
@@ -328,7 +330,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
                 "5개를 모두 줍다니 엄청난 하루를 보내셨군요!\n\n"
                 "아이템은 모두 주웠지만, 일상 속 소중한 순간은 계속 모을 수 있어요."
             ))
-        background_tasks.add_task(save_gem, user_id, data["gem"], data["text"], data["has_photo"], data.get("image_url"))
+        background_tasks.add_task(save_gem, user_id, data["gem"], data["text"], data["has_photo"], data.get("image_url"), data.get("ai_gems"))
         del pending_gem[user_id]
         return JSONResponse(kakao_save_complete(data["gem"]))
 
@@ -343,6 +345,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             pending_gem[user_id] = {
                 "gem": gem, "text": sel["text"],
                 "has_photo": sel["has_photo"], "image_url": sel.get("image_url"),
+                "ai_gems": sel.get("ai_gems"),
             }
             gem_label = f"{gem}({utterance})"
             return JSONResponse(kakao_response(
@@ -430,7 +433,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         if user_id in pending_photo:
             del pending_photo[user_id]
         # 원본 텍스트 보존 — 감정 버튼 선택 시 record_text로 사용
-        pending_gem[user_id] = {"gem": None, "text": utterance, "has_photo": has_photo, "image_url": image_url}
+        pending_gem[user_id] = {"gem": None, "text": utterance, "has_photo": has_photo, "image_url": image_url, "ai_gems": None}
         fail_count = classify_fail_count.get(user_id, 0) + 1
         classify_fail_count[user_id] = fail_count
         if fail_count >= 2:
@@ -463,6 +466,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
         pending_emotion_selection[user_id] = {
             "emotions": emotion_words, "text": utterance,
             "has_photo": has_photo, "image_url": image_url,
+            "ai_gems": ",".join(valid_gems),
         }
         emotion_buttons = [
             {"label": e, "action": "message", "messageText": e} for e in emotion_words
@@ -477,7 +481,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     gem = valid_gems[0]
     emotion = GEM_TO_EMOTION.get(gem, "")
     gem_label = f"{gem}({emotion})" if emotion else gem
-    pending_gem[user_id] = {"gem": gem, "text": utterance, "has_photo": has_photo, "image_url": image_url}
+    pending_gem[user_id] = {"gem": gem, "text": utterance, "has_photo": has_photo, "image_url": image_url, "ai_gems": gem}
     if has_photo:
         return JSONResponse(kakao_response(
             f"사진과 함께 발견한 {gem_label} 원석이에요! ✨\n저장할까요?",
