@@ -53,7 +53,6 @@ venv\Scripts\pip install -r requirements.txt
 
 **채집권 차감 시점:**
 - "저장하기" 클릭 시 (AI 분류 시점이 아님, 분류 실패 후 감정 선택 포함)
-- 감정 단어 직접 입력 시 (pending_gem 없는 경우)
 
 **카카오 응답 포맷:**
 - 텍스트: `simpleText`

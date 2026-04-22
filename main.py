@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 ALERT_EMAIL = os.getenv("ALERT_EMAIL")
@@ -58,32 +59,24 @@ def is_image_url(text: str) -> bool:
 
 
 def classify_emotion(text: str) -> list[str] | str | None:
+    prompt = (
+        "다음 입력이 일상 기록인지 판단해줘.\n"
+        "인사말, 단순 질문, 의미 없는 말(예: 하이, 안녕, ㅎㅎ, 테스트 등)이면 '기록아님'이라고만 답해.\n"
+        "일상 기록이라면 담긴 감정을 분석해서 아래 매핑에 맞는 원석 이름으로 답해줘.\n"
+        "감정-원석 매핑:\n"
+        "무탈→월장석, 평온→아쿠아마린, 뿌듯→황수정, 기쁨→루비, 만족→앰버, "
+        "설렘→로즈쿼츠, 슬픔→사파이어, 짜증→가넷, 후회→연수정, 위로→오팔\n"
+        "여러 감정이 담겨있으면 원석 이름들을 쉼표로만 구분해서 답해줘. "
+        "감정이 하나라면 원석 이름 하나만 답해줘. 다른 말은 절대 하지 마.\n\n"
+        f"입력: {text}"
+    )
     try:
         response = requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={"Authorization": f"Bearer {OPENROUTER_API_KEY}"},
-            json={
-                "model": "google/gemma-3-4b-it:free",
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": (
-                            "다음 입력이 일상 기록인지 판단해줘.\n"
-                            "인사말, 단순 질문, 의미 없는 말(예: 하이, 안녕, ㅎㅎ, 테스트 등)이면 '기록아님'이라고만 답해.\n"
-                            "일상 기록이라면 담긴 감정을 분석해서 아래 매핑에 맞는 원석 이름으로 답해줘.\n"
-                            "감정-원석 매핑:\n"
-                            "무탈→월장석, 평온→아쿠아마린, 뿌듯→황수정, 기쁨→루비, 만족→앰버, "
-                            "설렘→로즈쿼츠, 슬픔→사파이어, 짜증→가넷, 후회→연수정, 위로→오팔\n"
-                            "여러 감정이 담겨있으면 원석 이름들을 쉼표로만 구분해서 답해줘. "
-                            "감정이 하나라면 원석 이름 하나만 답해줘. 다른 말은 절대 하지 마.\n\n"
-                            f"입력: {text}"
-                        ),
-                    },
-                ],
-            },
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GOOGLE_API_KEY}",
+            json={"contents": [{"parts": [{"text": prompt}]}]},
             timeout=4,
         )
-        raw = response.json()["choices"][0]["message"]["content"].strip()
+        raw = response.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
         if raw == "기록아님":
             return "NOT_RECORD"
         gems = [g.strip() for g in raw.split(",") if g.strip()]
@@ -352,11 +345,11 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
                 f"{gem} 원석으로 바꿨어요! ✨\n저장할까요?",
                 show_save_button=True
             ))
-        # 분류 실패 시 직접 선택 → 즉시 저장
-        if not check_and_increment(user_id):
-            return JSONResponse(kakao_response("오늘 채집권을 모두 사용했어요! 내일 또 만나요 🌙"))
-        background_tasks.add_task(save_gem, user_id, gem, utterance, False)
-        return JSONResponse(kakao_save_complete(gem))
+        # pending_gem 없는 상태에서 감정 단어 입력 → 일상 기록 먼저 요청
+        return JSONResponse(kakao_response(
+            "먼저 오늘의 일상을 적어주세요 🪨\n"
+            "어떤 일이 있었는지 보내주시면 원석으로 저장해드릴게요!"
+        ))
 
     # 도감 조회
     if utterance == "도감":
