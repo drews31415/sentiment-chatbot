@@ -6,18 +6,42 @@ import os
 import smtplib
 from email.mime.text import MIMEText
 from dotenv import load_dotenv
+import psycopg2
+import anthropic
 
 load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 ALERT_EMAIL = os.getenv("ALERT_EMAIL")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
+RAILWAY_DATABASE_URL = os.getenv("RAILWAY_DATABASE_URL")
+
+anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 app = FastAPI()
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    print(f"[unhandled error] {exc}")
+    from fastapi.responses import JSONResponse as _JSONResponse
+    return _JSONResponse(
+        status_code=200,
+        content={
+            "version": "2.0",
+            "template": {
+                "outputs": [{"simpleText": {"text": "잠시 오류가 발생했어요. 다시 시도해주세요!"}}],
+                "quickReplies": [
+                    {"label": "인벤토리 👜", "action": "message", "messageText": "인벤토리"},
+                    {"label": "도감 📖", "action": "message", "messageText": "도감"},
+                ],
+            },
+        },
+    )
 
 user_count: dict = {}  # { "유저ID": {"date": date, "count": int} }
 pending_photo: dict = {}  # { "유저ID": {"time": datetime, "url": str} }
@@ -73,16 +97,13 @@ def classify_emotion(text: str) -> list[str] | str | None:
         f"입력: {text}"
     )
     try:
-        response = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-            json={
-                "model": "llama-3.1-8b-instant",
-                "messages": [{"role": "user", "content": prompt}],
-            },
-            timeout=4,
+        response = anthropic_client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=50,
+            messages=[{"role": "user", "content": prompt}],
+            timeout=4.0,
         )
-        raw = response.json()["choices"][0]["message"]["content"].strip()
+        raw = response.content[0].text.strip()
         print(f"[classify_emotion raw] {raw}")
         if "기록아님" in raw:
             return "NOT_RECORD"
@@ -91,15 +112,15 @@ def classify_emotion(text: str) -> list[str] | str | None:
         if not found:
             found = [EMOTION_TO_GEM[e] for e in EMOTION_TO_GEM if e in raw]
         return found if found else None
-    except requests.Timeout:
+    except anthropic.APITimeoutError:
         return "TIMEOUT"
     except Exception as e:
         print(f"[classify_emotion error] {e}")
-        print(f"[response] {response.text if 'response' in dir() else 'no response'}")
         return None
 
 
 def save_gem(user_id: str, gem: str, record_text: str, has_photo: bool, image_url: str = None, ai_gems: str = None):
+    # Supabase 저장
     try:
         data = {
             "user_id": user_id,
@@ -122,10 +143,43 @@ def save_gem(user_id: str, gem: str, record_text: str, has_photo: bool, image_ur
             timeout=5,
         )
     except Exception as e:
-        print(f"[save_gem error] {e}")
+        print(f"[save_gem supabase error] {e}")
+
+    # Railway DB 저장
+    if RAILWAY_DATABASE_URL:
+        try:
+            conn = psycopg2.connect(RAILWAY_DATABASE_URL)
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO chatbot (user_id, gem, record_text, has_photo, image_url, ai_gems)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (user_id, gem, record_text, has_photo, image_url, ai_gems),
+            )
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"[save_gem railway error] {e}")
 
 
 def get_gems(user_id: str) -> list:
+    if RAILWAY_DATABASE_URL:
+        try:
+            conn = psycopg2.connect(RAILWAY_DATABASE_URL)
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT gem, record_text, created_at FROM chatbot WHERE user_id = %s ORDER BY created_at DESC LIMIT 10",
+                (user_id,),
+            )
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
+            return [{"gem": r[0], "record_text": r[1], "created_at": r[2].isoformat()} for r in rows]
+        except Exception as e:
+            print(f"[get_gems railway error] {e}")
+            return []
     try:
         response = requests.get(
             f"{SUPABASE_URL}/rest/v1/gems",
@@ -140,7 +194,8 @@ def get_gems(user_id: str) -> list:
             },
             timeout=5,
         )
-        return response.json()
+        data = response.json()
+        return data if isinstance(data, list) else []
     except Exception as e:
         print(f"[get_gems error] {e}")
         return []
@@ -233,15 +288,16 @@ def kakao_response(text: str, show_emotion_buttons: bool = False, hide_buttons: 
         elif show_save_button:
             result["template"]["quickReplies"] = SAVE_QUICK_REPLIES
         elif show_emotion_buttons:
-            result["template"]["quickReplies"] = EMOTION_QUICK_REPLIES + BASE_QUICK_REPLIES
+            result["template"]["quickReplies"] = EMOTION_QUICK_REPLIES
         else:
             result["template"]["quickReplies"] = BASE_QUICK_REPLIES
     return result
 
 
-def kakao_save_complete(gem: str) -> dict:
+def kakao_save_complete(gem: str, user_id: str = "") -> dict:
     emotion = GEM_TO_EMOTION.get(gem, "")
     gem_label = f"{gem}({emotion})" if emotion else gem
+    link_url = f"{WEB_URL}?kakao_hash={user_id}" if user_id else WEB_URL
     card = {
         "title": f"✨ {gem_label} 원석 채집 완료!",
         "description": "일상 속 순간을 원석으로 저장했어요.\n오늘 주운 원석은 가방에서 확인해볼 수 있어요!",
@@ -249,7 +305,7 @@ def kakao_save_complete(gem: str) -> dict:
             {
                 "action": "webLink",
                 "label": "닥토 공방 열기 🌐",
-                "webLinkUrl": WEB_URL,
+                "webLinkUrl": link_url,
             }
         ],
     }
@@ -302,9 +358,86 @@ def kakao_carousel(gems: list) -> dict:
     }
 
 
+def _build_ai_response(user_id: str, utterance: str, has_photo: bool, image_url: str | None, result) -> dict:
+    if result == "NOT_RECORD":
+        return kakao_response(
+            "순간을 조금 더 담아주세요 🪨\n"
+            "어떤 일이 있었는지, 어떤 기분이었는지 적어주시면\n"
+            "딱 맞는 원석을 찾아드릴게요!"
+        )
+    if result == "TIMEOUT":
+        return kakao_response(
+            "현재 세공소에 광물이 몰려 분류에 시간이 조금 걸리고 있어요!\n"
+            "조금만 기다리면 세공소 주인장을 불러올게요 🛠️"
+        )
+
+    VALID_GEMS = set(EMOTION_TO_GEM.values())
+    valid_gems = [g for g in (result or []) if g in VALID_GEMS]
+
+    pending_photo.pop(user_id, None)
+
+    if not valid_gems:
+        pending_gem[user_id] = {"gem": None, "text": utterance, "has_photo": has_photo, "image_url": image_url, "ai_gems": None}
+        fail_count = classify_fail_count.get(user_id, 0) + 1
+        classify_fail_count[user_id] = fail_count
+        if fail_count >= 2:
+            classify_fail_count[user_id] = 0
+            pending_gem.pop(user_id, None)
+            send_alert_email(
+                "[닥토공방] 감정 분류 2회 실패 - 운영자 개입 필요",
+                f"유저 ID: {user_id}\n내용: {utterance}"
+            )
+            return kakao_response(
+                "세공소 주인장을 직접 불러올게요! 🛠️\n"
+                "잠시만 기다려주시면 운영자가 직접 도와드릴게요."
+            )
+        return kakao_response(
+            "앗! 순간이 너무 빨라 줍지 못했어요.\n"
+            "지금을 조금 더 깊이 적어 채집을 완료해보세요!\n\n"
+            "아래 감정 버튼을 눌러 더 쉽게 주울 수도 있어요!",
+            show_emotion_buttons=True
+        )
+
+    if len(valid_gems) >= 2:
+        emotion_words = [GEM_TO_EMOTION[g] for g in valid_gems if g in GEM_TO_EMOTION]
+        pending_emotion_selection[user_id] = {
+            "emotions": emotion_words, "text": utterance,
+            "has_photo": has_photo, "image_url": image_url,
+            "ai_gems": ",".join(valid_gems),
+        }
+        emotion_buttons = [{"label": e, "action": "message", "messageText": e} for e in emotion_words]
+        return kakao_response(
+            "이 순간엔 여러 감정이 담겨있네요!\n가장 크게 느껴진 감정을 골라주세요 💎",
+            custom_replies=emotion_buttons
+        )
+
+    gem = valid_gems[0]
+    emotion = GEM_TO_EMOTION.get(gem, "")
+    gem_label = f"{gem}({emotion})" if emotion else gem
+    pending_gem[user_id] = {"gem": gem, "text": utterance, "has_photo": has_photo, "image_url": image_url, "ai_gems": gem}
+    if has_photo:
+        return kakao_response(f"사진과 함께 발견한 {gem_label} 원석이에요! ✨\n저장할까요?", show_save_button=True)
+    return kakao_response(f"일상 속 순간에서 {gem_label} 원석을 발견했어요! ✨\n저장할까요?", show_save_button=True)
+
+
+def _callback_task(user_id: str, utterance: str, callback_url: str, photo_time, photo_url: str | None):
+    has_photo = bool(photo_time and datetime.now() - photo_time <= PHOTO_TIMEOUT)
+    image_url = photo_url if has_photo else None
+    result = classify_emotion(utterance)
+    response = _build_ai_response(user_id, utterance, has_photo, image_url, result)
+    try:
+        requests.post(callback_url, json=response, timeout=5)
+    except Exception as e:
+        print(f"[callback post error] {e}")
+
+
 @app.post("/webhook")
 async def webhook(request: Request, background_tasks: BackgroundTasks):
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception as e:
+        print(f"[webhook json error] {e}")
+        return JSONResponse(kakao_response("잠시 오류가 발생했어요. 다시 시도해주세요!"))
 
     user_id = body.get("userRequest", {}).get("user", {}).get("id", "unknown")
     utterance = body.get("userRequest", {}).get("utterance", "").strip()
@@ -350,7 +483,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
             ))
         background_tasks.add_task(save_gem, user_id, data["gem"], data["text"], data["has_photo"], data.get("image_url"), data.get("ai_gems"))
         del pending_gem[user_id]
-        return JSONResponse(kakao_save_complete(data["gem"]))
+        return JSONResponse(kakao_save_complete(data["gem"], user_id))
 
     # 퀵 버튼으로 감정 선택 (복수 감정 확인 중 / 다른 감정 선택 중 / 분류 실패 시 직접 선택)
     if utterance in EMOTION_TO_GEM:
@@ -427,85 +560,18 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
     if not utterance:
         return JSONResponse(kakao_response("조금 더 자세히 감정을 알려주실 수 있나요?"))
 
-    result = classify_emotion(utterance)
-    if result == "NOT_RECORD":
-        return JSONResponse(kakao_response(
-            "순간을 조금 더 담아주세요 🪨\n"
-            "어떤 일이 있었는지, 어떤 기분이었는지 적어주시면\n"
-            "딱 맞는 원석을 찾아드릴게요!"
-        ))
-    if result == "TIMEOUT":
-        return JSONResponse(kakao_response(
-            "현재 세공소에 광물이 몰려 분류에 시간이 조금 걸리고 있어요!\n"
-            "조금만 기다리면 세공소 주인장을 불러올게요 🛠️"
-        ))
-    VALID_GEMS = set(EMOTION_TO_GEM.values())
-    valid_gems = [g for g in (result or []) if g in VALID_GEMS]
-
-    # 사진+텍스트 여부 확인
     photo_data = pending_photo.get(user_id)
     has_photo = bool(photo_data and datetime.now() - photo_data["time"] <= PHOTO_TIMEOUT)
     image_url = photo_data["url"] if has_photo else None
 
-    if not valid_gems:
-        if user_id in pending_photo:
-            del pending_photo[user_id]
-        # 원본 텍스트 보존 — 감정 버튼 선택 시 record_text로 사용
-        pending_gem[user_id] = {"gem": None, "text": utterance, "has_photo": has_photo, "image_url": image_url, "ai_gems": None}
-        fail_count = classify_fail_count.get(user_id, 0) + 1
-        classify_fail_count[user_id] = fail_count
-        if fail_count >= 2:
-            classify_fail_count[user_id] = 0
-            del pending_gem[user_id]
-            background_tasks.add_task(
-                send_alert_email,
-                "[닥토공방] 감정 분류 2회 실패 - 운영자 개입 필요",
-                f"유저 ID: {user_id}\n내용: {utterance}"
-            )
-            return JSONResponse(kakao_response(
-                "세공소 주인장을 직접 불러올게요! 🛠️\n"
-                "잠시만 기다려주시면 운영자가 직접 도와드릴게요."
-            ))
-        return JSONResponse(kakao_response(
-            "앗! 순간이 너무 빨라 줍지 못했어요.\n"
-            "지금을 조금 더 깊이 적어 채집을 완료해보세요!\n\n"
-            "아래 감정 버튼을 눌러 더 쉽게 주울 수도 있어요!",
-            show_emotion_buttons=True
-        ))
+    callback_url = body.get("callbackUrl")
+    if callback_url:
+        background_tasks.add_task(
+            _callback_task, user_id, utterance, callback_url,
+            photo_data["time"] if photo_data else None,
+            photo_data["url"] if photo_data else None,
+        )
+        return JSONResponse({"version": "2.0", "useCallback": True})
 
-    if has_photo:
-        del pending_photo[user_id]
-    elif user_id in pending_photo:
-        del pending_photo[user_id]
-
-    # 복수 감정 감지 → 메인 감정 선택 요청
-    if len(valid_gems) >= 2:
-        emotion_words = [GEM_TO_EMOTION[g] for g in valid_gems if g in GEM_TO_EMOTION]
-        pending_emotion_selection[user_id] = {
-            "emotions": emotion_words, "text": utterance,
-            "has_photo": has_photo, "image_url": image_url,
-            "ai_gems": ",".join(valid_gems),
-        }
-        emotion_buttons = [
-            {"label": e, "action": "message", "messageText": e} for e in emotion_words
-        ]
-        return JSONResponse(kakao_response(
-            f"이 순간엔 여러 감정이 담겨있네요!\n"
-            f"가장 크게 느껴진 감정을 골라주세요 💎",
-            custom_replies=emotion_buttons
-        ))
-
-    # 단일 감정 → 저장 대기
-    gem = valid_gems[0]
-    emotion = GEM_TO_EMOTION.get(gem, "")
-    gem_label = f"{gem}({emotion})" if emotion else gem
-    pending_gem[user_id] = {"gem": gem, "text": utterance, "has_photo": has_photo, "image_url": image_url, "ai_gems": gem}
-    if has_photo:
-        return JSONResponse(kakao_response(
-            f"사진과 함께 발견한 {gem_label} 원석이에요! ✨\n저장할까요?",
-            show_save_button=True
-        ))
-    return JSONResponse(kakao_response(
-        f"일상 속 순간에서 {gem_label} 원석을 발견했어요! ✨\n저장할까요?",
-        show_save_button=True
-    ))
+    result = classify_emotion(utterance)
+    return JSONResponse(_build_ai_response(user_id, utterance, has_photo, image_url, result))
