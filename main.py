@@ -654,14 +654,23 @@ def _build_ai_response(user_id: str, utterance: str, has_photo: bool, image_url:
             custom_replies=DAILY_QUICK_REPLIES
         )
     if result == "TIMEOUT":
+        pending_emotion_selection.pop(user_id, None)
         pending_gem[user_id] = {"gem": None, "text": utterance, "has_photo": has_photo, "image_url": image_url, "ai_gems": None, "retry": True}
         return kakao_response(
             "현재 세공소에 광물이 몰려 분류에 시간이 조금 걸리고 있어요!\n잠시 후 다시 시도해볼까요? 🛠️",
             custom_replies=RETRY_QUICK_REPLIES
         )
 
+    if result is None:
+        pending_emotion_selection.pop(user_id, None)
+        pending_gem[user_id] = {"gem": None, "text": utterance, "has_photo": has_photo, "image_url": image_url, "ai_gems": None, "retry": True}
+        return kakao_response(
+            "잠시 오류가 발생했어요.\n잠시 후 다시 시도해볼까요? 🛠️",
+            custom_replies=RETRY_QUICK_REPLIES
+        )
+
     VALID_GEMS = set(EMOTION_TO_GEM.values())
-    valid_gems = [g for g in (result or []) if g in VALID_GEMS]
+    valid_gems = [g for g in result if g in VALID_GEMS]
 
     pending_gem.pop(user_id, None)
     pending_emotion_selection.pop(user_id, None)
