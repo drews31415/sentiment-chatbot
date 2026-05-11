@@ -246,6 +246,8 @@ def check_and_increment_n(user_id: str, n: int) -> tuple[int, int]:
 
 
 def is_image_url(text: str) -> bool:
+    if " " in text or "\n" in text:
+        return False
     return text.startswith("http") and any(
         ext in text.lower() for ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]
     )
@@ -621,6 +623,7 @@ def kakao_save_complete(gem: str, remaining: int, user_id: str = "", alert_msg: 
 
 
 def _build_ai_response(user_id: str, utterance: str, has_photo: bool, image_url: str | None, result) -> dict:
+    pending_photo.pop(user_id, None)
     if result == "NOT_RECORD":
         pending_gem.pop(user_id, None)
         pending_emotion_selection.pop(user_id, None)
@@ -1134,6 +1137,7 @@ async def webhook(request: Request, background_tasks: BackgroundTasks):
 
     # 사진 전송
     if is_image_url(utterance):
+        print(f"[image detected] user={user_id}, utterance={utterance}")
         pending_photo[user_id] = {"time": datetime.now(), "url": utterance}
         return JSONResponse(kakao_response(
             "사진으로 오늘을 담아주셨네요.\n\n"
