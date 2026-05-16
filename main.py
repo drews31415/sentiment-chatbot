@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 from collections import defaultdict
@@ -18,8 +19,18 @@ SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 ALERT_EMAIL = os.getenv("ALERT_EMAIL")
 GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
 RAILWAY_DATABASE_URL = os.getenv("RAILWAY_DATABASE_URL")
+ASSET_BASE_URL = (
+    os.getenv("ASSET_BASE_URL")
+    or os.getenv("RAILWAY_PUBLIC_DOMAIN")
+    or "https://sentiment-chatbot-production.up.railway.app"
+).rstrip("/")
+if not ASSET_BASE_URL.startswith(("http://", "https://")):
+    ASSET_BASE_URL = f"https://{ASSET_BASE_URL}"
 
 app = FastAPI()
+
+if os.path.isdir("gems"):
+    app.mount("/gems", StaticFiles(directory="gems"), name="gems")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -345,7 +356,7 @@ DANGER_MESSAGE = (
 HARMFUL_MESSAGE = "해당 기록은 서비스 정책에 따라 채집이 어려워요. 일상 속 소중한 순간을 담아 다시 보내주세요."
 
 WEB_URL = "https://frontend-production-09f81.up.railway.app/login"
-_IMG_BASE = "https://tetatvafhnqbtwgfebic.supabase.co/storage/v1/object/public/gem-images/"
+_IMG_BASE = f"{ASSET_BASE_URL}/gems/"
 DEFAULT_CARD_IMAGE = _IMG_BASE + "depression.png"
 ALL_GEMS_IMAGE = _IMG_BASE + "all_gems.png"
 MASCOT_IMAGE = _IMG_BASE + "character_2x1.png"
